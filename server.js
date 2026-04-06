@@ -1,6 +1,6 @@
 const express = require('express');
 const cors = require('cors');
-const instagramGetUrl = require("instagram-url-direct");
+const axios = require('axios');
 
 const app = express();
 app.use(cors());
@@ -20,27 +20,54 @@ app.post('/download', async (req, res) => {
     }
 
     try {
-        // Use the dedicated instagram-url-direct package
-        const igResponse = await instagramGetUrl(url);
+        // Use RapidAPI Instagram Scraper API
+        const response = await axios.get('https://instagram-scraper-api2.p.rapidapi.com/v1/post_info', {
+            params: { code_or_id_or_url: url },
+            headers: {
+                'X-RapidAPI-Key': '172d89556dmshb888b16d261849ep18c41ejsn831a887c4693',
+                'X-RapidAPI-Host': 'instagram-scraper-api2.p.rapidapi.com'
+            }
+        });
 
-        // Check if the package successfully found video URLs
-        if (igResponse && igResponse.url_list && igResponse.url_list.length > 0) {
+        const data = response.data?.data;
+        let videoUrl = '';
+        let thumbnailUrl = '';
+        
+        if (data) {
+            // Check direct video payload
+            if (data.video_url) {
+                videoUrl = data.video_url;
+                thumbnailUrl = data.thumbnail_src || '';
+            } 
+            // Check if it's a carousel/slideshow containing videos
+            else if (data.edge_sidecar_to_children && data.edge_sidecar_to_children.edges) {
+                const videoNode = data.edge_sidecar_to_children.edges.find(e => e.node && e.node.is_video);
+                if (videoNode) {
+                    videoUrl = videoNode.node.video_url;
+                    thumbnailUrl = videoNode.node.display_url || '';
+                }
+            }
+        }
+
+        if (videoUrl) {
             return res.json({
                 success: true,
-                video_url: igResponse.url_list[0], // Direct MP4 URL
-                thumbnail: ''
+                video_url: videoUrl,
+                thumbnail: thumbnailUrl
             });
         } else {
-            return res.status(500).json({
-                success: false,
-                message: 'Failed to extract video. The account might be private or Instagram blocked the server IP.'
-            });
+             return res.status(404).json({ 
+                 success: false, 
+                 message: 'Could not extract video. Ensure the URL is valid and contains a video.' 
+             });
         }
     } catch (error) {
-        console.error(`[Error]: ${error.message}`);
-        return res.status(500).json({
-            success: false,
-            message: 'An error occurred while fetching the reel.',
+        console.error(`[Error RapidAPI]:`, error.response ? error.response.data : error.message);
+        
+        // Return 500 but surface useful info in case it's a subscription error
+        return res.status(500).json({ 
+            success: false, 
+            message: 'An error occurred while fetching via RapidAPI. Make sure you clicked "Subscribe to Test" on RapidAPI for the API.',
             error: error.message
         });
     }
