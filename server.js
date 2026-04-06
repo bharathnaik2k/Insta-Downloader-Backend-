@@ -20,31 +20,38 @@ app.post('/download', async (req, res) => {
     }
 
     try {
-        // Use RapidAPI Instagram Scraper API
-        const response = await axios.get('https://instagram-scraper-api2.p.rapidapi.com/v1/post_info', {
-            params: { code_or_id_or_url: url },
+        console.log(`Fetching from RapidAPI... URL: ${url}`);
+        // Use the exact RapidAPI provider you are subscribed to
+        const response = await axios.get('https://instagram-reels-downloader-api.p.rapidapi.com/download', {
+            params: { url: url },
             headers: {
                 'X-RapidAPI-Key': '172d89556dmshb888b16d261849ep18c41ejsn831a887c4693',
-                'X-RapidAPI-Host': 'instagram-scraper-api2.p.rapidapi.com'
+                'X-RapidAPI-Host': 'instagram-reels-downloader-api.p.rapidapi.com'
             }
         });
 
-        const data = response.data?.data;
+        const data = response.data;
         let videoUrl = '';
         let thumbnailUrl = '';
         
+        // Dynamically find the video URL depending on how this specific API formats it
         if (data) {
-            // Check direct video payload
-            if (data.video_url) {
-                videoUrl = data.video_url;
-                thumbnailUrl = data.thumbnail_src || '';
-            } 
-            // Check if it's a carousel/slideshow containing videos
-            else if (data.edge_sidecar_to_children && data.edge_sidecar_to_children.edges) {
-                const videoNode = data.edge_sidecar_to_children.edges.find(e => e.node && e.node.is_video);
-                if (videoNode) {
-                    videoUrl = videoNode.node.video_url;
-                    thumbnailUrl = videoNode.node.display_url || '';
+            // Priority check for common JSON fields
+            videoUrl = 
+              data.video_url || 
+              data.download_url || 
+              data.url || 
+              (data.media && data.media[0] ? data.media[0] : null) ||
+              (data.data && data.data.video_url);
+
+            thumbnailUrl = data.thumbnail || data.thumbnail_src || data.cover || '';
+
+            // Extreme fallback: Search entire JSON object for an MP4 link if structure is completely unknown
+            if (!videoUrl && typeof data === 'object') {
+                const strData = JSON.stringify(data);
+                const mp4Match = strData.match(/"(https:\/\/[^"]*\.mp4[^"]*)"/);
+                if (mp4Match && mp4Match[1]) {
+                    videoUrl = mp4Match[1].replace(/\\u0026/g, "&"); // clean escaped characters
                 }
             }
         }
@@ -58,16 +65,15 @@ app.post('/download', async (req, res) => {
         } else {
              return res.status(404).json({ 
                  success: false, 
-                 message: 'Could not extract video. Ensure the URL is valid and contains a video.' 
+                 message: 'Could not extract video. Raw API response: ' + JSON.stringify(data).substring(0, 100) 
              });
         }
     } catch (error) {
         console.error(`[Error RapidAPI]:`, error.response ? error.response.data : error.message);
         
-        // Return 500 but surface useful info in case it's a subscription error
         return res.status(500).json({ 
             success: false, 
-            message: 'An error occurred while fetching via RapidAPI. Make sure you clicked "Subscribe to Test" on RapidAPI for the API.',
+            message: error.response?.data?.message || 'An error occurred while fetching via RapidAPI. Verify your subscription.',
             error: error.message
         });
     }
