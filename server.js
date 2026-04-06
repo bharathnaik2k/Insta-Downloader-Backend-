@@ -1,64 +1,16 @@
 const express = require('express');
-const axios = require('axios');
 const cors = require('cors');
+const instagramGetUrl = require("instagram-url-direct");
 
 const app = express();
 app.use(cors());
 app.use(express.json());
 
-const PORT = process.env.PORT || 3001;
+const PORT = process.env.PORT || 3000;
 
-// Utility to parse IG URL
-const getShortcode = (url) => {
-    try {
-        const urlObj = new URL(url);
-        const parts = urlObj.pathname.split('/').filter(Boolean);
-        if (parts.length >= 2 && (parts[0] === 'reel' || parts[0] === 'p' || parts[0] === 'tv')) {
-            return parts[1];
-        }
-        return null;
-    } catch (e) {
-        return null;
-    }
-};
-
-const userAgents = [
-    'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/114.0.0.0 Safari/537.36',
-    'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/113.0.0.0 Safari/537.36',
-];
-
-// Helper for scraping public reels
-async function scrapeInstagramReel(shortcode) {
-    const userAgent = userAgents[Math.floor(Math.random() * userAgents.length)];
-    const url = `https://www.instagram.com/reel/${shortcode}/`;
-
-    const response = await axios.get(url, {
-        headers: {
-            'User-Agent': userAgent,
-            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
-            'Accept-Language': 'en-US,en;q=0.5',
-            'Connection': 'keep-alive',
-            'Upgrade-Insecure-Requests': '1',
-            'Sec-Fetch-Dest': 'document',
-        },
-        timeout: 10000
-    });
-
-    const html = response.data;
-
-    // Attempt 1: Look for Open-Graph Video tags
-    let videoMatch = html.match(/<meta property="og:video" content="(.*?)"/);
-    let imageMatch = html.match(/<meta property="og:image" content="(.*?)"/);
-
-    if (videoMatch && videoMatch[1]) {
-        return {
-            video_url: videoMatch[1].replace(/&amp;/g, '&'),
-            thumbnail: imageMatch ? imageMatch[1].replace(/&amp;/g, '&') : ''
-        };
-    }
-
-    throw new Error('Video URL not found in meta tags. The content might be private or blocked.');
-}
+app.get('/', (req, res) => {
+    res.send('Instagram Reels Downloader API is running! Send a POST request to /download to fetch a reel.');
+});
 
 app.post('/download', async (req, res) => {
     const { url } = req.body;
@@ -67,25 +19,29 @@ app.post('/download', async (req, res) => {
         return res.status(400).json({ success: false, message: 'Instagram URL is required' });
     }
 
-    const shortcode = getShortcode(url);
-    if (!shortcode) {
-        return res.status(400).json({ success: false, message: 'Invalid Instagram URL provided.' });
-    }
-
     try {
-        const data = await scrapeInstagramReel(shortcode);
+        // Use the dedicated instagram-url-direct package
+        const igResponse = await instagramGetUrl(url);
 
-        return res.json({
-            success: true,
-            video_url: data.video_url,
-            thumbnail: data.thumbnail
-        });
+        // Check if the package successfully found video URLs
+        if (igResponse && igResponse.url_list && igResponse.url_list.length > 0) {
+            return res.json({
+                success: true,
+                video_url: igResponse.url_list[0], // Direct MP4 URL
+                thumbnail: ''
+            });
+        } else {
+            return res.status(500).json({
+                success: false,
+                message: 'Failed to extract video. The account might be private or Instagram blocked the server IP.'
+            });
+        }
     } catch (error) {
         console.error(`[Error]: ${error.message}`);
-        // Often Instagram returns 302/Login page if scraping is detected
         return res.status(500).json({
             success: false,
-            message: 'Failed to extract video. Make sure the account is public.'
+            message: 'An error occurred while fetching the reel.',
+            error: error.message
         });
     }
 });
@@ -93,3 +49,100 @@ app.post('/download', async (req, res) => {
 app.listen(PORT, () => {
     console.log(`Backend API live at http://localhost:${PORT}`);
 });
+
+
+// const express = require('express');
+// const axios = require('axios');
+// const cors = require('cors');
+
+// const app = express();
+// app.use(cors());
+// app.use(express.json());
+
+// const PORT = process.env.PORT || 3001;
+
+// // Utility to parse IG URL
+// const getShortcode = (url) => {
+//     try {
+//         const urlObj = new URL(url);
+//         const parts = urlObj.pathname.split('/').filter(Boolean);
+//         if (parts.length >= 2 && (parts[0] === 'reel' || parts[0] === 'p' || parts[0] === 'tv')) {
+//             return parts[1];
+//         }
+//         return null;
+//     } catch (e) {
+//         return null;
+//     }
+// };
+
+// const userAgents = [
+//     'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/114.0.0.0 Safari/537.36',
+//     'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/113.0.0.0 Safari/537.36',
+// ];
+
+// // Helper for scraping public reels
+// async function scrapeInstagramReel(shortcode) {
+//     const userAgent = userAgents[Math.floor(Math.random() * userAgents.length)];
+//     const url = `https://www.instagram.com/reel/${shortcode}/`;
+
+//     const response = await axios.get(url, {
+//         headers: {
+//             'User-Agent': userAgent,
+//             'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+//             'Accept-Language': 'en-US,en;q=0.5',
+//             'Connection': 'keep-alive',
+//             'Upgrade-Insecure-Requests': '1',
+//             'Sec-Fetch-Dest': 'document',
+//         },
+//         timeout: 10000
+//     });
+
+//     const html = response.data;
+
+//     // Attempt 1: Look for Open-Graph Video tags
+//     let videoMatch = html.match(/<meta property="og:video" content="(.*?)"/);
+//     let imageMatch = html.match(/<meta property="og:image" content="(.*?)"/);
+
+//     if (videoMatch && videoMatch[1]) {
+//         return {
+//             video_url: videoMatch[1].replace(/&amp;/g, '&'),
+//             thumbnail: imageMatch ? imageMatch[1].replace(/&amp;/g, '&') : ''
+//         };
+//     }
+
+//     throw new Error('Video URL not found in meta tags. The content might be private or blocked.');
+// }
+
+// app.post('/download', async (req, res) => {
+//     const { url } = req.body;
+
+//     if (!url) {
+//         return res.status(400).json({ success: false, message: 'Instagram URL is required' });
+//     }
+
+//     const shortcode = getShortcode(url);
+//     if (!shortcode) {
+//         return res.status(400).json({ success: false, message: 'Invalid Instagram URL provided.' });
+//     }
+
+//     try {
+//         const data = await scrapeInstagramReel(shortcode);
+
+//         return res.json({
+//             success: true,
+//             video_url: data.video_url,
+//             thumbnail: data.thumbnail
+//         });
+//     } catch (error) {
+//         console.error(`[Error]: ${error.message}`);
+//         // Often Instagram returns 302/Login page if scraping is detected
+//         return res.status(500).json({
+//             success: false,
+//             message: 'Failed to extract video. Make sure the account is public.'
+//         });
+//     }
+// });
+
+// app.listen(PORT, () => {
+//     console.log(`Backend API live at http://localhost:${PORT}`);
+// });
